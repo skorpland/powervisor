@@ -1,0 +1,23 @@
+[Unit]
+Description=Powervisor
+After=network.target
+Requires=network.target
+StartLimitIntervalSec=5
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=${POWERVISOR_USER}
+EnvironmentFile=/opt/powervisor/service_vars.ini
+WorkingDirectory=/opt/powervisor
+ExecStart=/opt/powervisor/bin/server start
+ExecStop=/opt/powervisor/bin/server stop
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+TasksMax=infinity
+
+# vi: ft=systemd

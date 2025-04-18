@@ -1,0 +1,124 @@
+defmodule Powervisor.Monitoring.PromEx do
+  @moduledoc """
+  This module configures the PromEx application for Powervisor. It defines
+  the plugins used for collecting metrics, including built-in plugins and custom ones,
+  and provides a function to remove remote metrics associated with a specific tenant.
+  """
+
+  use PromEx, otp_app: :powervisor
+  require Logger
+
+  alias PromEx.Plugins
+  alias Powervisor.PromEx.Plugins.{OsMon, Tenant}
+
+  @impl true
+  def plugins do
+    poll_rate = Application.fetch_env!(:powervisor, :prom_poll_rate)
+
+    [
+      # PromEx built in plugins
+      Plugins.Application,
+      Plugins.Beam,
+      {Plugins.Phoenix, router: PowervisorWeb.Router, endpoint: PowervisorWeb.Endpoint},
+      Plugins.Ecto,
+
+      # Custom PromEx metrics plugins
+      {OsMon, poll_rate: poll_rate},
+      {Tenant, poll_rate: poll_rate}
+    ]
+  end
+
+  @spec set_metrics_tags() :: map()
+  def set_metrics_tags do
+    metrics_tags = :logger.get_primary_config().metadata
+
+    metrics_tags =
+      case short_node_id() do
+        nil -> metrics_tags
+        short_alloc_id -> Map.put(metrics_tags, :short_alloc_id, short_alloc_id)
+      end
+
+    Application.put_env(:powervisor, :metrics_tags, metrics_tags)
+    metrics_tags
+  end
+
+  @spec short_node_id() :: String.t() | nil
+  def short_node_id do
+    with {:ok, fly_alloc_id} when is_binary(fly_alloc_id) <-
+           Application.fetch_env(:powervisor, :fly_alloc_id),
+         [short_alloc_id, _] <- String.split(fly_alloc_id, "-", parts: 2) do
+      short_alloc_id
+    else
+      _ -> nil
+    end
+  end
+
+  @spec get_metrics() :: iodata()
+  def get_metrics do
+    metrics_tags =
+      case Application.fetch_env(:powervisor, :metrics_tags) do
+        :error -> set_metrics_tags()
+        {:ok, tags} -> tags
+      end
+
+    def_tags = Enum.map_join(metrics_tags, ",", fn {k, v} -> "#{k}=\"#{v}\"" end)
+
+    metrics =
+      PromEx.get_metrics(__MODULE__)
+      |> String.split("\n")
+      |> Enum.map(&parse_and_add_tags(&1, def_tags))
+
+    Powervisor.Monitoring.PromEx.ETSCronFlusher
+    |> PromEx.ETSCronFlusher.defer_ets_flush()
+
+    metrics
+  end
+
+  @spec do_cache_tenants_metrics() :: list
+  def do_cache_tenants_metrics do
+    metrics = get_metrics() |> IO.iodata_to_binary() |> String.split("\n")
+
+    pools =
+      Registry.select(Powervisor.Registry.TenantClients, [{{:"$1", :_, :_}, [], [:"$1"]}])
+      |> Enum.uniq()
+
+    _ =
+      Enum.reduce(pools, metrics, fn {{_type, tenant}, _, _, _, _}, acc ->
+        {matched, rest} = Enum.split_with(acc, &String.contains?(&1, "tenant=\"#{tenant}\""))
+
+        if matched != [] do
+          Cachex.put(Powervisor.Cache, {:metrics, tenant}, Enum.join(matched, "\n"))
+        end
+
+        rest
+      end)
+
+    pools
+  end
+
+  @spec get_tenant_metrics(String.t()) :: String.t()
+  def get_tenant_metrics(tenant) do
+    case Cachex.get(Powervisor.Cache, {:metrics, tenant}) do
+      {_, metrics} when is_binary(metrics) -> metrics
+      _ -> ""
+    end
+  end
+
+  @spec parse_and_add_tags(String.t(), String.t()) :: iodata()
+  defp parse_and_add_tags(line, def_tags) do
+    case Regex.run(~r/(?!\#)^(\w+)(?:{(.*?)})?\s*(.+)$/, line) do
+      nil ->
+        [line, "\n"]
+
+      [_, key, tags, value] ->
+        tags =
+          if tags == "" do
+            def_tags
+          else
+            [tags, ",", def_tags]
+          end
+
+        [key, "{", tags, "}", value, "\n"]
+    end
+  end
+end

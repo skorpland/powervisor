@@ -1,0 +1,67 @@
+defmodule Powervisor.TenantsFixtures do
+  @moduledoc """
+  This module defines test helpers for creating
+  entities via the `Powervisor.Tenants` context.
+  """
+
+  @doc """
+  Generate a tenant.
+  """
+  def tenant_fixture(attrs \\ %{}) do
+    {:ok, tenant} =
+      attrs
+      |> Enum.into(%{
+        db_database: "some db_database",
+        db_host: "some db_host",
+        db_port: 42,
+        external_id: "dev_tenant",
+        default_parameter_status: %{"server_version" => "15.0"},
+        require_user: true,
+        users: [
+          %{
+            "db_user" => "postgres",
+            "db_password" => "postgres",
+            "pool_size" => 3,
+            "mode_type" => "transaction"
+          }
+        ]
+      })
+      |> Powervisor.Tenants.create_tenant()
+
+    tenant
+  end
+
+  # @doc """
+  # Generate a unique cluster tenant_external_id.
+  # """
+  # def unique_cluster_tenant_external_id,
+  #   do: "some tenant_external_id#{System.unique_integer([:positive])}"
+
+  @doc """
+  Generate a unique cluster type.
+  """
+  def unique_cluster_type, do: "some type#{System.unique_integer([:positive])}"
+
+  @doc """
+  Generate a cluster.
+  """
+  def cluster_fixture(attrs \\ %{}) do
+    {:ok, cluster} =
+      attrs
+      |> Enum.into(%{
+        active: true,
+        alias: "some_alias",
+        cluster_tenants: [
+          %{
+            type: "write",
+            cluster_alias: "some_alias",
+            tenant_external_id: "proxy_tenant1",
+            active: true
+          }
+        ]
+      })
+      |> Powervisor.Tenants.create_cluster()
+
+    cluster
+  end
+end
