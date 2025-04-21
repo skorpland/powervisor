@@ -70,7 +70,7 @@ defmodule Powervisor.MixProject do
 
       # pooller
       # {:poolboy, "~> 1.5.2"},
-      {:poolboy, git: "https://github.com/skorpland/poolboy", tag: "v0.0.1"},
+     {:poolboy, git: "https://github.com/skorpland/poolboy", tag: "v0.0.1"},
       {:syn, "~> 3.3"},
       {:pgo, "~> 0.13"},
       {:rustler, "~> 0.36.1"},
