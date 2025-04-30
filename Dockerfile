@@ -85,6 +85,7 @@ COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/powervisor ./
 
 ENV RLIMIT_NOFILE 100000
 COPY limits.sh /app/limits.sh
+RUN chmod +x /app/limits.sh
 ENTRYPOINT ["/usr/bin/tini", "-s", "-g", "--", "/app/limits.sh"]
 
 CMD ["/app/bin/server"]
